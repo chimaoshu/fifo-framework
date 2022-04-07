@@ -73,7 +73,7 @@ namespace UtilError
 
 namespace UtilSystem
 {
-    // 守护进程
+    // 变身守护进程
     static int init_daemon()
     {
         int pid;
@@ -105,6 +105,9 @@ namespace UtilSystem
         // 关闭所有从父进程继承的不再需要的文件描述符
         for (i = 0; i < NOFILE; i++)
             close(i);
+
+        // 改变工作目录，使得进程不与任何文件系统联系
+        // chdir("/");
 
         // 将文件当时创建屏蔽字设置为0
         umask(0);

@@ -1,5 +1,6 @@
+#include "src/mux/FilesListenerEpoll.h"
+#include "src/mux/FilesListenerSelect.h"
 #include "src/app/server/controller/chat_server_pipes.h"
-#include "src/mux/FileListener.h"
 
 int main()
 {
@@ -23,7 +24,8 @@ int main()
 
     // 添加到多路复用的监听集合中
     bool use_thread_pool = false;
-    FilesListener listener(use_thread_pool);
+    // FilesListenerSelect listener(use_thread_pool);
+    FilesListenerEpoll listener(use_thread_pool);
     listener.add_fd(reg_pipe);
     listener.add_fd(login_pipe);
     listener.add_fd(msg_pipe);

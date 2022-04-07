@@ -1,5 +1,7 @@
 #include <iostream>
 
+#include "src/mux/FilesListenerSelect.h"
+#include "src/mux/FilesListenerEpoll.h"
 #include "src/app/client/controller/chat_client_pipes.h"
 
 using namespace std;
@@ -27,7 +29,8 @@ int main()
     shared_ptr<FileDescriptor> user_input_stdin((FileDescriptor *)new UserInput());
 
     bool use_thread_pool = false;
-    FilesListener listener(use_thread_pool);
+    // FilesListenerSelect listener(use_thread_pool);
+    FilesListenerEpoll listener(use_thread_pool);
     listener.add_fd(user_recv_pipe);
     listener.add_fd(user_input_stdin);
     listener.listen_select();

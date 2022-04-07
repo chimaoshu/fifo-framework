@@ -1,76 +1,49 @@
-#ifndef __SELECTOR_H__
-#define __SELECTOR_H__
+#ifndef __FILE_LISTENER_SELECT_H__
+#define __FILE_LISTENER_SELECT_H__
 
-#include <map>
-#include <memory>
+#include <sys/select.h>
 
-#include "src/ThreadPool/ThreadPool.hpp"
-#include "src/config/ConfigReader.h"
-#include "src/fd/FileDescriptor.h"
-#include "src/fd/NamedPipe.h"
+#include "src/mux/FilesListener.h"
 
 // 文件集合进行监听
-class FilesListener
+class FilesListenerSelect : public FilesListener
 {
 private:
-    // fd to FileDescriptor
-    std::map<int, std::shared_ptr<FileDescriptor>> files_;
     // select用
     fd_set read_fd_set_;
-    // 使用线程池处理内容
-    bool use_thread_pool_;
-    ThreadPool *pool_ = NULL;
 
 public:
-    FilesListener(bool use_thread_pool)
-        : use_thread_pool_(use_thread_pool)
-    {
-        FD_ZERO(&read_fd_set_);
-        if (use_thread_pool_)
-        {
-            int thread_num = atoi(config::get("thread_num").c_str());
-            pool_ = new ThreadPool(thread_num);
-        }
-    }
+    FilesListenerSelect(bool use_thread_pool)
+        : FilesListener(use_thread_pool) { FD_ZERO(&read_fd_set_); }
 
-    ~FilesListener() { delete pool_; }
+    ~FilesListenerSelect()
+    {
+        if (use_thread_pool_)
+            delete pool_;
+    }
 
     // 添加要监听的管道
     bool add_fd(std::shared_ptr<FileDescriptor> file)
     {
-        // 未打开则打开
-        file->openfile();
-        int fd = file->get_fd();
-
-        // 已存在
-        if (files_.find(fd) != files_.end())
+        if (FilesListener::add_fd(file))
         {
-            Log::warn("file with fd " + std::to_string(fd) + " has already been added to selector");
-            return false;
+            int fd = file->get_fd();
+            FD_SET(fd, &read_fd_set_);
+            return true;
         }
-
-        files_[fd] = file;
-        FD_SET(fd, &read_fd_set_);
-        return true;
+        return false;
     }
 
     // 删除要监听的管道
     bool remove_fd(std::shared_ptr<FileDescriptor> file)
     {
-        int fd = file->get_fd();
-
-        // 不存在
-        auto it = files_.find(fd);
-        if (it == files_.end())
+        if (FilesListener::remove_fd(file))
         {
-            Log::warn("file with fd " + std::to_string(fd) + " not exits in selector");
-            return false;
+            int fd = file->get_fd();
+            FD_CLR(fd, &read_fd_set_);
+            return true;
         }
-
-        // 删除
-        files_.erase(it);
-        FD_CLR(fd, &read_fd_set_);
-        return true;
+        return false;
     }
 
     // 调用回调函数
@@ -124,10 +97,6 @@ public:
 #endif
         }
     }
-
-    // TODO
-    void listen_poll() {}
-    void listen_epoll() {}
 };
 
 #endif

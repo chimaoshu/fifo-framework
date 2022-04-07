@@ -18,13 +18,13 @@ struct RegRecv
 
 void test_named_pipe()
 {
-    WriteOnlyFIFO<char *> pipe("/home/user/pipes/server/user_register");
+    WriteOnlyFIFO<char *> pipe("/home/cjw/pipes/server/cjw_register");
     pipe.openfile();
     string msg = "123";
     pipe.writeline(msg);
     pipe.closefile();
 
-    WriteOnlyFIFO<RegRecv> pipe2("/home/user/pipes/server/user_register");
+    WriteOnlyFIFO<RegRecv> pipe2("/home/cjw/pipes/server/cjw_register");
     pipe2.openfile();
     RegRecv reg;
     string username = "123";
