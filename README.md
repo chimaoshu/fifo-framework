@@ -10,6 +10,93 @@ Linux下的多线程命名管道通信框架
 
 ### 一些可用的功能
 
+#### 定义不同的文件
+
+所有文件类都有共同的API，开发者只需要关注`eof_callback`与`recv_callback`，有时需要自己重新定义接收消息时的回调函数。
+```cpp
+int get_fd(); // 获取文件描述符
+
+int readfile(void *buf, size_t n);  // 返回读取字节数，0表示EOF
+int writefile(void *buf, size_t n); // 返回写入字节数，0表示没写入
+int closefile();                    // 关闭文件
+int openfile() = 0;                 // 打开文件，不存在则创建，已打开则不操作
+int createfile() = 0;               // 创建文件，存在则删除重新创建
+int deletefile() = 0;               // 删除文件
+void eof_callback(int err) = 0;     // EOF时回调
+void recv_callback() = 0;           // 有输入时回调
+
+void writeline(std::string &s);             // 写一行字符串，保证以换行符结尾
+std::string readline();                     // 读一行字符串，保证以换行符结尾
+```
+
+##### 定义命名管道
+
+定义一个用于读的命名管道（比如服务端用于监听请求的管道），模板参数为开发者定义的model，后面会提到
+```cpp
+class RegPipe : public ReadOnlyFIFO<Protocal::Reg::RegRecv>
+{
+public:
+    RegPipe();
+};
+```
+
+定义一个用于写的命名管道（比如客户端用于向服务端写的管道）
+```cpp
+class RegPipe : public WriteOnlyFIFO<Protocal::Reg::RegRecv>
+{
+public:
+    RegPipe();
+};
+```
+
+##### 自定义标准输入，为其加上回调
+```cpp
+// 标准输入用于读
+class UserInput : public Stdin
+{
+private:
+    void print_help();
+
+public:
+    // 重新定义回调，用于处理用户输入
+    void recv_callback();
+    void eof_callback(int err);
+};
+```
+
+##### 定义socket
+// TODO
+
+#### 文件监听
+
+实现了基于select、epoll的监听，开发者可以将定义好的命名管道或者stdin添加到listner中，文件描述符可读时会自动调用回调函数。
+
+实例化listner类时需要传入一个bool值：是否使用线程池进行处理，true则使用多线程处理请求，false则单线程处理请求。
+
+listner类拥有共同的API
+```cpp
+bool add_fd(std::shared_ptr<FileDescriptor> file)       // 添加要监听的文件描述符
+bool remove_fd(std::shared_ptr<FileDescriptor> file)    // 删除要监听的文件描述符
+void listen() = 0;                                      // 开始监听
+```
+
+使用示例
+```cpp
+// 实例化创建管道
+shared_ptr<FileDescriptor> reg_pipe((FileDescriptor *)new RegPipe();
+reg_pipe->createfile();
+// 实例化标准输入
+shared_ptr<FileDescriptor> user_input_stdin((FileDescriptor *)new UserInput());
+// 是否使用线程池
+bool use_thread_pool = false;
+FilesListenerEpoll listener(use_thread_pool); // 使用epoll监听
+// or 
+FilesListenerSelect listener(use_thread_pool);  // 使用select监听
+listener.add_fd(user_recv_pipe);
+listener.add_fd(user_input_stdin);
+listener.listen();
+```
+
 #### 配置文件
 
 在运行文件目录下创建 `./app.conf` 文件，每行表示一个kv值，用空格隔开，#为注释。
@@ -163,9 +250,10 @@ namespace Protocal
 }
 ```
 
-### 服务端：定义服务端接收到消息时的回调函数
+### 服务端：定义服务端接收到消息时的回调函数（controller）
 
 ```cpp
+// 继承一个只读的命名管道，使用 this->set_process_func() 设置回调函数
 RegPipe::RegPipe() : ReadOnlyFIFO(config::get("reg_fifo_path"))
 {
     // 回调函数
@@ -202,42 +290,37 @@ RegPipe::RegPipe() : ReadOnlyFIFO(config::get("reg_fifo_path"))
 }
 ```
 
-### 服务端：main函数例子
+### 服务端main函数：将前面定义好的API（命名管道）添加到select或者epoll进行监听
 
 ```cpp
+#include "src/mux/FilesListenerEpoll.h"
+#include "src/mux/FilesListenerSelect.h"
 #include "src/app/server/controller/chat_server_pipes.h"
-#include "src/mux/FileListener.h"
 
 int main()
 {
+    // 可将服务端变守护进程
     UtilSystem::init_daemon();
 
-    // 注册管道
+    // 注册用的API
     shared_ptr<FileDescriptor> reg_pipe = make_shared<RegPipe>();
     reg_pipe->createfile();
 
-    // 登录管道
+    // 登录用的API
     shared_ptr<FileDescriptor> login_pipe = make_shared<LoginPipe>();
     login_pipe->createfile();
 
-    // 发消息管道
-    shared_ptr<FileDescriptor> msg_pipe = make_shared<MsgPipe>();
-    msg_pipe->createfile();
-
-    // 注销管道
-    shared_ptr<FileDescriptor> logout_pipe = make_shared<LogoutPipe>();
-    logout_pipe->createfile();
-
-    // 添加到多路复用的监听集合中
+    // 是否使用线程池（false则为单线程处理）
     bool use_thread_pool = false;
-    FilesListener listener(use_thread_pool);
+    
+    // 添加到多路复用的监听集合中，这里可以使用select或者epoll
+    // FilesListenerSelect listener(use_thread_pool);
+    FilesListenerEpoll listener(use_thread_pool);
     listener.add_fd(reg_pipe);
     listener.add_fd(login_pipe);
-    listener.add_fd(msg_pipe);
-    listener.add_fd(logout_pipe);
 
     // 开始服务器
-    listener.listen_select();
+    listener.listen();
 }
 ```
 
@@ -281,31 +364,7 @@ void UserRecvPipe::recv_callback()
         UserLog::log("logout", Protocal::Logout::get_string_by_status(status));
         break;
     }
-    case Protocal::ProtocalType::MsgRet:
-    {
-        Protocal::Msg::MsgStatus status;
-        if (!readfile(&status, sizeof(Protocal::Msg::MsgStatus)))
-            return;
-        UserLog::log("message", Protocal::Msg::get_string_by_status(status));
-        break;
-    }
-    case Protocal::ProtocalType::RegRet:
-    {
-        Protocal::Reg::RegStatus status;
-        if (!readfile(&status, sizeof(Protocal::Reg::RegStatus)))
-            return;
-        UserLog::log("register", Protocal::Reg::get_string_by_status(status));
-        break;
-    }
-    // 其他用户发消息来
-    case Protocal::ProtocalType::MsgRecv:
-    {
-        char from[64], to[64], msg[64];
-        if (!readfile(from, 64) || !readfile(to, 64) || !readfile(msg, 64))
-            return;
-        UserLog::log("message", "a message from " + string(from) + " to " + string(to) + " :" + string(msg));
-        break;
-    }
+    // case xxxxx
     default:
         UtilError::error_exit("invalid protocal type " + to_string(type), false);
         break;
@@ -313,7 +372,7 @@ void UserRecvPipe::recv_callback()
 }
 ```
 
-### 客户端：main函数例子
+### 客户端：main函数例子（这里定义了stdin和客户端命名管道，将两个文件添加到select或epoll中进行监听）
 
 ```cpp
 #include <iostream>
@@ -348,6 +407,6 @@ int main()
     FilesListener listener(use_thread_pool);
     listener.add_fd(user_recv_pipe);
     listener.add_fd(user_input_stdin);
-    listener.listen_select();
+    listener.listen();
 }
 ```
