@@ -32,5 +32,5 @@ int main()
     listener.add_fd(logout_pipe);
 
     // 开始服务器
-    listener.listen_select();
+    listener.listen();
 }

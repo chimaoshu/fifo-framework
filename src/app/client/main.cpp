@@ -33,5 +33,5 @@ int main()
     FilesListenerEpoll listener(use_thread_pool);
     listener.add_fd(user_recv_pipe);
     listener.add_fd(user_input_stdin);
-    listener.listen_select();
+    listener.listen();
 }

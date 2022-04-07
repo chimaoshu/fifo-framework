@@ -72,10 +72,8 @@ public:
         return true;
     }
 
-    // 调用回调函数
-    virtual void listen_select(){};
-    virtual void listen_poll(){};
-    virtual void listen_epoll(){};
+    // 监听
+    virtual void listen() = 0;
 };
 
 #endif
